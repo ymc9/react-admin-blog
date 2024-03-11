@@ -1,0 +1,62 @@
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "sqlite"
+    url      = env("DATABASE_URL")
+}
+
+model User {
+    id Int @id @default(autoincrement())
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    email String @unique
+    password String @password @omit
+    name String?
+    role String @default('Author') // Author, Editor, Admin
+    posts Post[]
+
+    // all logged in users can read all users
+    @@allow('read', auth() != null)
+
+    // a user can update himself, and an admin can update any user
+    @@allow('all', auth() == this || auth().role == 'Admin')
+}
+
+model Post {
+    id Int @id @default(autoincrement())
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    title String
+    content String
+    status String @default('Draft') // Draft, Submitted, Published
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    userId Int
+
+    // admins have full access to all posts
+    @@allow('all', auth().role == 'Admin')
+
+    // authors can create new posts for themselves with "Draft" status
+    @@allow('create', auth() == user && status == 'Draft')
+
+    // post owner can read their own posts
+    @@allow('read', auth() == user)
+
+    // non-draft posts can be read by all logged in users
+    @@allow('read', auth() != null && status != 'Draft')
+
+    // update rules for "Author"
+    @@allow('update',
+        auth().role == 'Author' // user is an author
+        && auth() == user // user is the post owner
+        && status != 'Published' // published posts can't be updated
+        && future().status != 'Published' // can't change status to "Published"
+    )
+
+    // update rules for "Editor"
+    @@allow('update', auth().role == 'Editor' && status != 'Draft')
+
+    // owner or admin can delete a post if it's not published
+    @@allow('delete', auth() == user && status != 'Published')
+}
